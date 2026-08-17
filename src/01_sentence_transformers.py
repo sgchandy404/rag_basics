@@ -4,12 +4,17 @@ import os
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pydantic import BaseModel
 from sentence_transformers import SentenceTransformer
+import numpy as np
+import faiss
 
 class GlobalVars:
 
     TRANSFORMER_MODEL:str = ''
     DEFAULT_CHUNK_SIZE:int = 0
     DEFAULT_CHUNK_OVERLAP: int = 0
+    SIMILARITY_THRESHOLD: float = 0.5
+    TOP_K:int = 3
+    MAX_DISTANCE:float = 0.5
 
 class ChunkData(BaseModel):
 
@@ -22,6 +27,14 @@ class EmbeddingData(BaseModel):
     text:str
     embedding:list[float]
     origin:str
+
+class ResultData(BaseModel):
+    id:int
+    query:str
+    score: float
+    chunk: str
+    embedding_id: int
+
 
 class InMemoryDB:
     def __init__(self):
@@ -40,18 +53,92 @@ def main()->None:
 
     chunked_text = prepare_chunks(text_data,doc_name)
 
-    stored_embeddings = embed_text(chunked_text)
-
-
-def embed_text(chunked_text:list[ChunkData])->InMemoryDB:
-
-
-    db = InMemoryDB()
-
     transformer_model = SentenceTransformer(GlobalVars.TRANSFORMER_MODEL)
+
+    faiss_index,embedded_data = embed_text(chunked_text,transformer_model)
+
+    while True:
+        query = fetch_query()
+        results = search_query(query,faiss_index,embedded_data,transformer_model)
+        display_results(results)
+
+
+def display_results(results:list[ResultData])->None:
+
+    if not results:
+        print('No Relevant Data Found !')
+        return None
+
+    # top_k_sorted_results = sorted(results,
+    #                               key = lambda x: x.score,
+    #                               reverse=True)[:GlobalVars.TOP_K]
+
+    print(f'Top {GlobalVars.TOP_K} chunks retrieved with their scores : ')
+    for result in results:
+        print('*'*60)
+        print(f'Chunk : {result.chunk}')
+        print(f'Euc Distance : {result.score}')
+
+def search_query(query:str,faiss_index:faiss.Index,embeddings:list[EmbeddingData],transformer_model:SentenceTransformer)->list[ResultData]:
+
+    result_list = []
+
+    embedded_query = transformer_model.encode(query)
+
+    embedded_query = np.array([embedded_query],dtype=np.float32)
+
+    distance,indices = faiss_index.search(embedded_query,k=GlobalVars.TOP_K)
+
+    for d,i in zip(distance[0],indices[0]):
+        if d <= GlobalVars.MAX_DISTANCE:
+            result_list.append(
+                ResultData(
+                    id = len(result_list),
+                    query=query,
+                    score=d,
+                    embedding_id=embeddings[i].id,
+                    chunk=embeddings[i].text
+                )
+            )
+
+    return result_list
+
+def cosine_similarity(query_embedding,chunk_embedding):
+
+    return(np.dot(query_embedding,chunk_embedding) / (np.linalg.norm(query_embedding) * np.linalg.norm(chunk_embedding)))
+
+
+def fetch_query()->str:
+
+    query = ''
+    query = input('Please enter query : ')
+
+    if not query:
+        raise RuntimeError('Empty Query Passed')
+
+    if query.lower() == 'exit':
+        exit(1)
+
+    return query
+
+
+
+def embed_text(chunked_text:list[ChunkData],transformer_model:SentenceTransformer)->tuple[faiss.Index,list[EmbeddingData]]:
+
+    embedded_data = []
 
     texts = [chunk.text for chunk in chunked_text]
     embeddings = transformer_model.encode(texts)
+    embeddings = np.array(
+        embeddings,
+        dtype=np.float32
+    )
+
+    dimension = embeddings.shape[1]
+
+    faiss_index = faiss.IndexFlatL2(dimension)
+    faiss_index.add(embeddings)
+
 
     assert len(embeddings) == len(chunked_text)
 
@@ -60,7 +147,7 @@ def embed_text(chunked_text:list[ChunkData])->InMemoryDB:
         text = chunk.text
         origin = chunk.origin
 
-        db.add(
+        embedded_data.append(
             EmbeddingData(
                 id = chunk_id,
                 text = text,
@@ -69,7 +156,7 @@ def embed_text(chunked_text:list[ChunkData])->InMemoryDB:
             )
         )
 
-    return db
+    return faiss_index,embedded_data
 
 
 def prepare_chunks(text:str,doc_name:str) -> list[ChunkData]:
@@ -119,11 +206,17 @@ def load_env_vars(env_file:str)->None:
 
     load_dotenv(env_file)
     GlobalVars.TRANSFORMER_MODEL = os.environ.get('DEFAULT_SENTENCE_TRANSFORMER_MODEL','')
-    GlobalVars.DEFAULT_CHUNK_SIZE = int(os.environ.get('DEFAULT_CHUNK_SIZE',400))
-    GlobalVars.DEFAULT_CHUNK_OVERLAP = int(os.environ.get('DEFAULT_CHUNK_OVERLAP',60))
+    GlobalVars.DEFAULT_CHUNK_SIZE = int(os.environ.get('DEFAULT_CHUNK_SIZE',10))
+    GlobalVars.DEFAULT_CHUNK_OVERLAP = int(os.environ.get('DEFAULT_CHUNK_OVERLAP',4))
+    GlobalVars.SIMILARITY_THRESHOLD = float(os.environ.get('SIMILARITY_THRESHOLD',0.5))
+    GlobalVars.TOP_K = int(os.environ.get('TOP_K',3))
+    GlobalVars.MAX_DISTANCE = float(os.environ.get('MAX_DISTANCE',0.5))
 
     if GlobalVars.DEFAULT_CHUNK_OVERLAP <= 0 or GlobalVars.DEFAULT_CHUNK_SIZE <= 0:
         raise KeyError('Invalid Values passed for DEFAULT_CHUNK_OVERLAP/DEFAULT_CHUNK_SIZE')
+
+    if GlobalVars.SIMILARITY_THRESHOLD <=0 or GlobalVars.TOP_K <=0:
+        raise KeyError('Invalid Values passed for SIMILARITY THRESHOLD/TOP_K')
 
     if not GlobalVars.TRANSFORMER_MODEL:
         raise KeyError('Default Transformer Model Not Found')
