@@ -1,0 +1,9 @@
+TP53 is one of the most frequently mutated tumour suppressor genes in human cancers. It plays a critical role in regulating the cell cycle, initiating apoptosis, and maintaining genomic stability after DNA damage.
+
+Mutations in TP53 have been associated with breast cancer, colorectal cancer, ovarian cancer, and lung cancer. Loss of TP53 function often allows damaged cells to continue dividing, increasing the likelihood of tumour formation.
+
+EGFR is another clinically significant gene that is frequently mutated in non-small cell lung cancer. Activating mutations in EGFR can make patients highly responsive to Tyrosine Kinase Inhibitors (TKIs) such as Osimertinib and Gefitinib.
+
+BRCA1 and BRCA2 are essential components of the homologous recombination DNA repair pathway. Individuals carrying inherited pathogenic variants in these genes have a significantly higher lifetime risk of developing breast and ovarian cancers.
+
+Precision medicine combines genomic alterations, clinical history, pathology findings, and therapeutic evidence to recommend personalized treatment strategies. Modern AI systems increasingly assist clinicians by retrieving relevant biomedical literature and summarizing the available evidence.
